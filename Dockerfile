@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Install backend dependencies
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # Install and build the React frontend
 COPY desktop/package*.json ./desktop/
