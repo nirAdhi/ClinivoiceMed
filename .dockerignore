@@ -1,0 +1,9 @@
+node_modules
+desktop/node_modules
+dist
+desktop/dist
+.git
+.env
+.vite
+.npm
+npm-debug.log*

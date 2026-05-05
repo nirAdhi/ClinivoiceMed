@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Clinivoice Mobile Mic</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: #0f172a;
+            color: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .brand {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: #a78bfa;
+        }
+        .subtitle {
+            font-size: 14px;
+            color: #94a3b8;
+            margin-bottom: 32px;
+            text-align: center;
+        }
+        .status {
+            font-size: 13px;
+            color: #64748b;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+        .status.connected { color: #34d399; }
+        .status.recording { color: #ef4444; font-weight: 700; }
+        .mic-btn {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            font-size: 48px;
+            cursor: pointer;
+            box-shadow: 0 8px 32px rgba(239, 68, 68, 0.4);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .mic-btn:active { transform: scale(0.95); }
+        .mic-btn.recording {
+            background: linear-gradient(135deg, #64748b, #475569);
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+            50% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
+        }
+        .transcript-box {
+            width: 100%;
+            max-width: 480px;
+            margin-top: 32px;
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 16px;
+            min-height: 100px;
+            max-height: 40vh;
+            overflow-y: auto;
+            font-size: 15px;
+            line-height: 1.6;
+            color: #e2e8f0;
+            word-break: break-word;
+        }
+        .transcript-box:empty::before {
+            content: 'Spoken words will appear here...';
+            color: #64748b;
+        }
+        .hint {
+            margin-top: 16px;
+            font-size: 12px;
+            color: #64748b;
+            text-align: center;
+        }
+        .error-banner {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            max-width: 480px;
+            width: 100%;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="brand">Clinivoice Mobile Mic</div>
+    <div class="subtitle">Use your phone as a wireless microphone</div>
+    <div id="status" class="status">Connecting...</div>
+    <div id="error" class="error-banner" style="display:none"></div>
+    <button id="micBtn" class="mic-btn">🎙️</button>
+    <div id="transcript" class="transcript-box"></div>
+    <div class="hint">Tap the button to start/stop recording. Speak clearly.</div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const sessionId = params.get('session');
+        const statusEl = document.getElementById('status');
+        const errorEl = document.getElementById('error');
+        const micBtn = document.getElementById('micBtn');
+        const transcriptEl = document.getElementById('transcript');
+
+        if (!sessionId) {
+            statusEl.textContent = 'Invalid session. Please scan the QR code again.';
+            statusEl.style.color = '#ef4444';
+            micBtn.disabled = true;
+        }
+
+        let ws = null;
+        let recognition = null;
+        let isRecording = false;
+        let finalTranscript = '';
+
+        function showError(msg) {
+            errorEl.textContent = msg;
+            errorEl.style.display = 'block';
+        }
+
+        function connectWS() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws?session=${encodeURIComponent(sessionId)}&role=mobile`;
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                statusEl.textContent = 'Connected to desktop. Ready to record.';
+                statusEl.classList.add('connected');
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'peerConnected' && data.role === 'desktop') {
+                        statusEl.textContent = 'Desktop connected. Ready to record.';
+                        statusEl.classList.add('connected');
+                    }
+                    if (data.type === 'peerDisconnected' && data.role === 'desktop') {
+                        statusEl.textContent = 'Desktop disconnected.';
+                        statusEl.classList.remove('connected');
+                    }
+                } catch (e) {}
+            };
+
+            ws.onclose = () => {
+                statusEl.textContent = 'Connection lost. Reconnecting...';
+                statusEl.classList.remove('connected');
+                setTimeout(connectWS, 2000);
+            };
+
+            ws.onerror = () => {
+                statusEl.textContent = 'Connection error.';
+            };
+        }
+
+        if (sessionId) connectWS();
+
+        function sendToDesktop(text) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'transcript', text: text }));
+            }
+        }
+
+        function startRecording() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                showError('Speech recognition is not supported on this browser. Please use Chrome or Safari on your phone.');
+                return;
+            }
+
+            recognition = new SpeechRecognition();
+            recognition.lang = 'en-US';
+            recognition.continuous = true;
+            recognition.interimResults = true;
+
+            recognition.onresult = (event) => {
+                let interim = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    const transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript + ' ';
+                        transcriptEl.textContent = finalTranscript.trim();
+                        sendToDesktop(finalTranscript.trim());
+                    } else {
+                        interim += transcript;
+                        transcriptEl.textContent = (finalTranscript + interim).trim();
+                    }
+                }
+            };
+
+            recognition.onerror = (e) => {
+                console.error('Recognition error', e);
+                if (e.error === 'not-allowed') {
+                    showError('Microphone permission denied. Please allow microphone access in your browser settings.');
+                }
+            };
+
+            recognition.onend = () => {
+                if (isRecording) {
+                    // Auto-restart if still recording
+                    try { recognition.start(); } catch (err) {}
+                }
+            };
+
+            recognition.start();
+            isRecording = true;
+            micBtn.classList.add('recording');
+            statusEl.textContent = 'Recording... speak now';
+            statusEl.classList.add('recording');
+        }
+
+        function stopRecording() {
+            isRecording = false;
+            if (recognition) {
+                try { recognition.stop(); } catch (e) {}
+            }
+            micBtn.classList.remove('recording');
+            statusEl.classList.remove('recording');
+            statusEl.textContent = ws && ws.readyState === WebSocket.OPEN ? 'Connected to desktop. Ready to record.' : 'Reconnecting...';
+            // Send final transcript one more time
+            if (finalTranscript.trim()) {
+                sendToDesktop(finalTranscript.trim());
+            }
+        }
+
+        micBtn.addEventListener('click', () => {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                finalTranscript = '';
+                transcriptEl.textContent = '';
+                startRecording();
+            }
+        });
+    </script>
+</body>
+</html>
