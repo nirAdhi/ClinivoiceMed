@@ -7,10 +7,8 @@ services:
     container_name: clinivoice_db
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-clinivoice_secure_root_2024}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-ClinivoiceSecure2024!}
       MYSQL_DATABASE: clinivoice_v2
-      MYSQL_USER: ${DB_USER:-clinivoice}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-clinivoice_secure_2024}
     volumes:
       - clinivoice_db_data:/var/lib/mysql
     # DO NOT expose port to internet - only internal Docker network
@@ -34,8 +32,8 @@ services:
       NODE_ENV: production
       DB_HOST: db
       DB_PORT: 3306
-      DB_USER: ${DB_USER:-clinivoice}
-      DB_PASSWORD: ${DB_PASSWORD:-clinivoice_secure_2024}
+      DB_USER: root
+      DB_PASSWORD: ${DB_PASSWORD:-ClinivoiceSecure2024!}
       DB_NAME: clinivoice_v2
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
