@@ -9,11 +9,70 @@ const crypto = require('crypto');
 const aiService = require('./ai-service');
 const WebSocket = require('ws');
 const QRCode = require('qrcode');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// Security headers with helmet
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "blob:"],
+            connectSrc: ["'self'", "ws:", "wss:"],
+            fontSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            upgradeInsecureRequests: [],
+        },
+    },
+    crossOriginEmbedderPolicy: false,
+}));
+
+// Restricted CORS - only allow your domain
+const allowedOrigins = [
+    'http://localhost:3002',
+    'http://localhost:3000',
+    process.env.ALLOWED_ORIGIN, // Set this in production
+].filter(Boolean);
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, curl, etc.)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+            callback(null, true);
+        } else {
+            console.warn(`CORS blocked origin: ${origin}`);
+            callback(null, false); // Don't throw error, just reject
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+// Rate limiting for login endpoint - prevent brute force
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // 5 attempts per IP per window
+    skipSuccessfulRequests: true, // Reset on successful login
+    message: { error: 'Too many login attempts. Please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// General API rate limiter
+const apiLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 100, // 100 requests per minute per IP
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 app.use(bodyParser.json({ limit: '50mb' }));
 
 // Serve static files from desktop/dist and public
@@ -208,7 +267,7 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', loginLimiter, async (req, res) => {
     try {
         const { userId, password } = req.body;
         const user = await db.verifyUser({ user_id: userId, password });
