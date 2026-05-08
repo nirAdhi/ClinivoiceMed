@@ -138,18 +138,8 @@ async function initializeTables() {
             await promisePool.query('ALTER TABLE users ADD COLUMN reset_expires DATETIME NULL');
         } catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
 
-        // Create default admin user if none exists (avoid hoisting issues)
-        const [adminExists] = await promisePool.query('SELECT id FROM users WHERE user_id = ? LIMIT 1', ['admin']);
-        if (adminExists.length === 0) {
-            const hash = await bcrypt.hash('Admin@123', 10);
-            await promisePool.query(
-                'INSERT INTO users (user_id, domain, password_hash) VALUES (?, ?, ?)',
-                ['admin', 'medical', hash]
-            );
-            console.log('🔑 Default admin user created: admin / Admin@123');
-        } else {
-            console.log('ℹ️  Admin user already exists');
-        }
+        // No default admin created automatically - use setup-database.js to create admin
+        console.log('ℹ️  Database ready. Use setup-database.js to create admin user.');
 
         console.log('✅ Database tables ready');
     } catch (error) {
@@ -276,6 +266,11 @@ const createUser = async ({ user_id, password, domain, role = 'clinician', name 
     }
 };
 
+const getUserById = async (user_id) => {
+    const [[user]] = await promisePool.query('SELECT id, user_id, name, email, domain, role, password_hash, created_at, last_login FROM users WHERE user_id = ?', [user_id]);
+    return user || null;
+};
+
 const verifyUser = async ({ user_id, password }) => {
     const [[user]] = await promisePool.query('SELECT * FROM users WHERE user_id = ?', [user_id]);
     if (!user) return null;
@@ -349,6 +344,7 @@ module.exports = {
     getUserStats,
     createUser,
     verifyUser,
+    getUserById,
     getAllUsers,
     updateUserProfile,
     deleteUser,

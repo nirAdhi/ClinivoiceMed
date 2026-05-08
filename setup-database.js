@@ -80,14 +80,18 @@ async function setupDatabase() {
         `);
         console.log('✅ sessions table');
         
-        // Create default admin user
+        // Create default admin user with secure password
         const bcrypt = require('bcryptjs');
-        const hash = await bcrypt.hash('Admin@123', 10);
+        const adminPassword = process.env.ADMIN_PASSWORD || 'CliniVoice$ecureAdmin2026!';
+        const hash = await bcrypt.hash(adminPassword, 10);
         await connection.query(
             'INSERT IGNORE INTO users (user_id, domain, password_hash, role) VALUES (?, ?, ?, ?)',
             ['admin', 'medical', hash, 'admin']
         );
-        console.log('🔑 Default admin: admin / Admin@123');
+        console.log('🔑 Default admin: admin / ' + adminPassword);
+        if (!process.env.ADMIN_PASSWORD) {
+            console.log('⚠️  Using default password. Set ADMIN_PASSWORD env var for production!');
+        }
         
         await connection.end();
         console.log('\n✅ Database setup complete!');

@@ -1,16 +1,21 @@
 import { useEffect, useState } from 'react'
 
-function AdminPanel({ onClose }) {
+function AdminPanel({ onClose, token }) {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [editUserId, setEditUserId] = useState(null)
   const [form, setForm] = useState({ name: '', email: '', domain: 'dental', role: 'clinician', password: '' })
 
+  const authHeaders = () => ({
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token || localStorage.getItem('clinivoice_token') || ''}`
+  })
+
   const fetchUsers = async () => {
     try {
       setLoading(true)
-      const res = await fetch('/api/admin/users?adminId=admin')
+      const res = await fetch('/api/admin/users', { headers: authHeaders() })
       if (!res.ok) throw new Error('Failed to load users')
       const data = await res.json()
       setUsers(data)
@@ -38,8 +43,8 @@ function AdminPanel({ onClose }) {
     try {
       const body = { name: form.name, email: form.email, domain: form.domain, role: form.role }
       if (form.password) body.password = form.password
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(editUserId)}?adminId=admin`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(editUserId)}`, {
+        method: 'PUT', headers: authHeaders(), body: JSON.stringify(body)
       })
       if (!res.ok) throw new Error('Update failed')
       setEditUserId(null)
@@ -54,7 +59,7 @@ function AdminPanel({ onClose }) {
   const deleteUser = async (user_id) => {
     if (!confirm(`Delete user ${user_id}? This also deletes their sessions.`)) return
     try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(user_id)}?adminId=admin`, { method: 'DELETE' })
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(user_id)}`, { method: 'DELETE', headers: authHeaders() })
       if (!res.ok) throw new Error('Delete failed')
       await fetchUsers()
       alert('User deleted')

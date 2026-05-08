@@ -39,8 +39,8 @@ function Login({ onLogin, theme, onToggleTheme }) {
             const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, password }) })
             const data = await res.json()
             if (!res.ok) throw new Error(data.error || 'Invalid credentials')
-            const { domain: userDomain } = data
-            onLogin(userId, userDomain)
+            if (!data.token || !data.user) throw new Error('Invalid server response')
+            onLogin(data.user, data.token)
         } catch (err) { setAuthError(err.message || 'Login failed') }
     }
 

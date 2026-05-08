@@ -3,7 +3,12 @@ import './MainDashboard.css'
 import { CalendarIcon, UsersIcon, SparklesIcon, TimerIcon, MicIcon, FileTextIcon } from './Icons'
 import AdminPanel from './AdminPanel'
 
-function MainDashboard({ user, onLogout, theme, onToggleTheme }) {
+function MainDashboard({ user, token, onLogout, theme, onToggleTheme }) {
+  const authHeaders = () => ({
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token || localStorage.getItem('clinivoice_token') || ''}`
+  })
+
   const [stats, setStats] = useState({ todayEncounters: 0, activePatients: 0, aiNotesGenerated: 0, timeSaved: 0 })
   const [transcription, setTranscription] = useState('')
   const [aiNote, setAiNote] = useState(null)
@@ -44,6 +49,13 @@ function MainDashboard({ user, onLogout, theme, onToggleTheme }) {
   const [mobileConnected, setMobileConnected] = useState(false)
   const [relaySessionId, setRelaySessionId] = useState('')
 
+  // Password change state
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordChangeError, setPasswordChangeError] = useState('')
+  const [passwordChangeSuccess, setPasswordChangeSuccess] = useState('')
+
   // Medical template selector
   const [selectedTemplate, setSelectedTemplate] = useState('')
 
@@ -58,12 +70,12 @@ function MainDashboard({ user, onLogout, theme, onToggleTheme }) {
   ]
 
   useEffect(() => {
-    fetch(`/api/stats/${user.userId}`)
+    fetch(`/api/stats/${user.userId}`, { headers: authHeaders() })
       .then(res => res.json())
       .then(setStats)
       .catch(console.error)
 
-    fetch(`/api/sessions?userId=${user.userId}`)
+    fetch(`/api/sessions?userId=${user.userId}`, { headers: authHeaders() })
       .then(res => res.json())
       .then(data => setRecentEncounters(data.slice(0, 5)))
       .catch(console.error)
@@ -137,7 +149,7 @@ function MainDashboard({ user, onLogout, theme, onToggleTheme }) {
 
   const openPatientsList = async () => {
     try {
-      const res = await fetch(`/api/patients?userId=${user.userId}`)
+      const res = await fetch(`/api/patients?userId=${user.userId}`, { headers: authHeaders() })
       if (res.ok) {
         const data = await res.json()
         setPatientsList(data)
@@ -208,7 +220,7 @@ function MainDashboard({ user, onLogout, theme, onToggleTheme }) {
       
       const res = await fetch('/api/save-transcript-secure', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify(payload)
       })
       if (!res.ok) {
@@ -220,7 +232,7 @@ function MainDashboard({ user, onLogout, theme, onToggleTheme }) {
       setShowPreviewModal(false)
       setShowSaveModal(false)
       // refresh recent encounters
-      fetch(`/api/sessions?userId=${user.userId}`).then(r=>r.json()).then(d=>setRecentEncounters(d.slice(0,5))).catch(()=>{})
+      fetch(`/api/sessions?userId=${user.userId}`, { headers: authHeaders() }).then(r=>r.json()).then(d=>setRecentEncounters(d.slice(0,5))).catch(()=>{})
     } catch (err) {
       pushToast(err.message || 'Failed to save', 'error')
     }
@@ -359,7 +371,7 @@ function MainDashboard({ user, onLogout, theme, onToggleTheme }) {
     setRelaySessionId(sid)
     const mobileUrl = `${window.location.origin}/mobile-mic?session=${encodeURIComponent(sid)}`
     try {
-      const res = await fetch(`/api/qr?data=${encodeURIComponent(mobileUrl)}`)
+      const res = await fetch(`/api/qr?data=${encodeURIComponent(mobileUrl)}`, { headers: authHeaders() })
       const data = await res.json()
       if (data.qr) {
         setQrDataUrl(data.qr)
@@ -377,7 +389,8 @@ function MainDashboard({ user, onLogout, theme, onToggleTheme }) {
   const connectWsRelay = (sid) => {
     if (wsDesktop) { try { wsDesktop.close() } catch {} }
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws?session=${encodeURIComponent(sid)}&role=desktop`)
+    const currentToken = token || localStorage.getItem('clinivoice_token') || ''
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws?session=${encodeURIComponent(sid)}&role=desktop&token=${encodeURIComponent(currentToken)}`)
     setWsDesktop(ws)
     ws.onopen = () => {
       console.log('Desktop WS connected')
@@ -439,6 +452,39 @@ function MainDashboard({ user, onLogout, theme, onToggleTheme }) {
     return () => window.removeEventListener('keydown', handleEsc)
   }, [showPreviewModal, showSaveModal, showPatientsModal, showSettings, showCopyModal, showQrModal, viewingEncounter])
 
+  const submitChangePassword = async (e) => {
+    e.preventDefault()
+    setPasswordChangeError('')
+    setPasswordChangeSuccess('')
+    if (!currentPassword || !newPassword) {
+      setPasswordChangeError('Please fill in all fields')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordChangeError('New passwords do not match')
+      return
+    }
+    if (newPassword.length < 6) {
+      setPasswordChangeError('New password must be at least 6 characters')
+      return
+    }
+    try {
+      const res = await fetch('/api/change-password', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ currentPassword, newPassword })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to change password')
+      setPasswordChangeSuccess('Password changed successfully')
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    } catch (err) {
+      setPasswordChangeError(err.message || 'Failed to change password')
+    }
+  }
+
   const handleGenerate = async () => {
     if (!transcription || transcription.trim().length === 0) {
       alert('Please record or type some text first')
@@ -450,7 +496,7 @@ function MainDashboard({ user, onLogout, theme, onToggleTheme }) {
       console.log('🚀 Sending generate request...')
       const res = await fetch('/api/generate-note', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(),
         body: JSON.stringify({
           transcription: transcription.trim(),
           domain: user?.domain || 'medical',
@@ -570,7 +616,7 @@ function MainDashboard({ user, onLogout, theme, onToggleTheme }) {
 
       {showSettings && (
         <div className="modal-overlay" onClick={() => setShowSettings(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content settings-modal" onClick={(e) => e.stopPropagation()}>
             <h2>⚙️ Settings</h2>
             <div className="settings-section">
               <p><strong>User:</strong> {user.userId}</p>
@@ -582,6 +628,43 @@ function MainDashboard({ user, onLogout, theme, onToggleTheme }) {
                 Auto-generate note when recording stops
               </label>
             </div>
+
+            <div className="settings-section password-change-section">
+              <h3>🔐 Change Password</h3>
+              <form onSubmit={submitChangePassword}>
+                <div className="input-row">
+                  <input
+                    type="password"
+                    placeholder="Current Password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="input-row">
+                  <input
+                    type="password"
+                    placeholder="New Password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="input-row">
+                  <input
+                    type="password"
+                    placeholder="Confirm New Password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                {passwordChangeError && <div className="auth-error" role="alert">{passwordChangeError}</div>}
+                {passwordChangeSuccess && <div className="auth-success" role="alert">{passwordChangeSuccess}</div>}
+                <button type="submit" className="save-note-btn">Update Password</button>
+              </form>
+            </div>
+
             <button onClick={() => setShowSettings(false)} className="modal-close-btn">Close</button>
           </div>
         </div>
@@ -601,7 +684,7 @@ function MainDashboard({ user, onLogout, theme, onToggleTheme }) {
       )}
 
       {showAdmin && (
-        <AdminPanel onClose={() => setShowAdmin(false)} />
+        <AdminPanel onClose={() => setShowAdmin(false)} token={token} />
       )}
 
       {showCopyModal && (
@@ -1043,7 +1126,7 @@ Your words will appear here as you speak
                       if (aiNote.sessionId) {
                         await fetch(`/api/sessions/${aiNote.sessionId}`, {
                           method: 'PUT',
-                          headers: { 'Content-Type': 'application/json' },
+                          headers: authHeaders(),
                           body: JSON.stringify({ ai_notes: JSON.stringify(aiNote), status: 'finalized' })
                         })
                         alert('Note saved!')
